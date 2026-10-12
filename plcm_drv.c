@@ -1,43 +1,36 @@
 /*
- * Lanner Parallel LCM driver for Kernel 2.4.x and 2.6.x
+ * Lanner Parallel LCM driver
  */
 
 /* Standard in kernel modules */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
-#include <linux/sched.h>
 #include <linux/delay.h>
+#include <linux/ioport.h>
+#include <linux/miscdevice.h>
+#include <linux/mutex.h>
+#include <linux/uaccess.h>
 #include <asm/io.h>
-#include <asm/uaccess.h>
 #include "plcm_ioctl.h"
-
-#if defined(OLDKERNEL)
-#define printk //printk issue in 2.4.22
-#endif
 
 /*
  * Driver Version Control
  */
 // Version 0.0.1 by Lanner SW as the Init. Version
-static unsigned char Driver_Version[] = "0.0.1"; // 2010-09-07
-
-/*
- * Device Major Number
- */
-#define PLCM_MAJOR 241
+static const char Driver_Version[] = "0.0.2";
 
 /*
  * Is the device opened right now?
  * Prevent to access the device in the same time
  */
-static int Device_Open = 0;
 static int stop_thread = 0;
+static DEFINE_MUTEX(plcm_lock);
 
 /*
  * Device Depend Function Prototypes
  */
-static void LCM_Init(void);
+static int LCM_Init(void);
 static void LCM_Command(unsigned char RS, unsigned char RWn, unsigned char CMD, unsigned int uDelay, unsigned char *Ret);
 static void LCM_Backlight(void);
 
@@ -63,6 +56,8 @@ static unsigned char Cur_Shift = 0x10; // Current Cursor/Dsiplay Shift Ctrl
 
 static unsigned int row = 0; // count row
 
+#define PLCM_IO_EXTENT 3
+
 //  RS 	R\W     Function
 //  0 	1 	    Status flag read
 //  0 	0 	    Command write
@@ -70,33 +65,32 @@ static unsigned int row = 0; // count row
 //  1 	0 	    Display data and parameter write
 
 
-static void LCM_Init(void)
+static int LCM_Init(void)
 {
 	unsigned int i = 0;
+	static const unsigned int ports[] = { LPT1, LPT2, LPT3 };
+	unsigned int port;
 
-	if(inb(LPT1) != 0xFF)
+	for (i = 0; i < ARRAY_SIZE(ports); i++)
 	{
-		Port_Addr = LPT1;
-	}
-	else if(inb(LPT2) != 0xFF)
-	{
-		Port_Addr = LPT2;
-	}
-	else if(inb(LPT3) != 0xFF)
-	{
-		Port_Addr = LPT3;
-	}
-	else
-	{
-		Port_Addr = 0;
+		port = ports[i];
+		if (!request_region(port, PLCM_IO_EXTENT, "plcm_drv"))
+			continue;
+		if (inb(port) != 0xFF)
+		{
+			Port_Addr = port;
+			break;
+		}
+		release_region(port, PLCM_IO_EXTENT);
 	}
 	if(Port_Addr == 0)
 	{
-		printk("plcm_drv: Can not find any LPTx to use...\n");
+		pr_err("plcm_drv: cannot find an available LPT port\n");
+		return -ENODEV;
 	}
 	else
 	{
-		printk("plcm_drv: LPTx Address = %x\n", Port_Addr);
+		pr_info("plcm_drv: LPT address = 0x%x\n", Port_Addr);
 		DataPort = Port_Addr;
 		StatusPort = Port_Addr + 1;
 		ControlPort = Port_Addr + 2;
@@ -161,7 +155,7 @@ static void LCM_Init(void)
 			LCM_Command(1, 0, 0x00, 300, NULL);
 		}
 	}
-	return;
+	return 0;
 }
 
 #define ENABLE 0x02
@@ -239,18 +233,14 @@ static int plcm_thread(void *s)
 }
 #endif 
 
-#if defined(OLDKERNEL)
-static ssize_t plcm_read(struct file *file, char * buffer, size_t length, loff_t * offset)
-#else
 static ssize_t plcm_read(struct file *file, char __user * buffer, size_t length, loff_t * offset)
-#endif
 {
 	unsigned char LCM_Message[40];
 	int i = 0;
 	
-	if(length != 40)
+	if(length < sizeof(LCM_Message))
 	{
-		return 0;
+		return -EINVAL;
 	}
 	if(Cur_Line == 1)
 	{
@@ -267,30 +257,25 @@ static ssize_t plcm_read(struct file *file, char __user * buffer, size_t length,
 		{
 			LCM_Message[i] = 0;
 		}
-		put_user(*(LCM_Message + i), buffer + i); // Copy Data 
 	}
-	printk("plcm_drv: Read %s\n", LCM_Message);
-	return strlen(LCM_Message);
+	if (copy_to_user(buffer, LCM_Message, sizeof(LCM_Message)))
+		return -EFAULT;
+
+	return sizeof(LCM_Message);
 }
 
-#if defined(OLDKERNEL)
-static ssize_t plcm_write(struct file *file, const char * buffer, size_t length, loff_t * offset)
-#else
 static ssize_t plcm_write(struct file *file, const char __user * buffer, size_t length, loff_t * offset)
-#endif
 {
 	unsigned char LCM_Message[40];
 	int i = 0;
 
-	for(i = 0; i < 40; i++)
+	if(length > sizeof(LCM_Message))
 	{
-		LCM_Message[i] = ' ';
+		return -EINVAL;
 	}
-	printk("plcm_drv: Write %s\n", buffer);
-	if(length > 40)
-	{
-		return 0;
-	}
+	memset(LCM_Message, ' ', sizeof(LCM_Message));
+	if (copy_from_user(LCM_Message, buffer, length))
+		return -EFAULT;
 	if(Cur_Line == 1)
 	{
 		LCM_Command(0, 0, 0x80, 300, NULL);
@@ -301,9 +286,8 @@ static ssize_t plcm_write(struct file *file, const char __user * buffer, size_t 
 	}
 	for(i = 0; i < 40; i++)
 	{
-		if((length - i) > 0)
+		if(i < length)
 		{
-			get_user(LCM_Message[i], buffer + i);
 			if(LCM_Message[i] == 0)
 			{
 				LCM_Message[i] = ' ';
@@ -311,10 +295,10 @@ static ssize_t plcm_write(struct file *file, const char __user * buffer, size_t 
 		}
 		LCM_Command(1, 0, LCM_Message[i], 300, NULL);
 	}
-	return i;
+	return length;
 }
 
-static int plcm_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg)
+static long plcm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	switch(cmd)
 	{
@@ -402,7 +386,7 @@ static int plcm_ioctl(struct inode *inode, struct file *file, unsigned int cmd, 
 			else if(arg == 1)
 				{
 					Cur_Shift |= 0x04;
-					if(row >= 0 && row < 19)
+					if(row < 19)
 					{
 						row++;
 					}
@@ -412,7 +396,6 @@ static int plcm_ioctl(struct inode *inode, struct file *file, unsigned int cmd, 
 			break;
 		case PLCM_IOCTL_GET_KEYPAD:
 			return inb(StatusPort);
-			break;
 		case PLCM_IOCTL_INPUT_CHAR:
 			printk("input a char \n");
 			LCM_Command(1, 0, (char)arg,  300, NULL);
@@ -434,10 +417,10 @@ static int plcm_open(struct inode * inode, struct file * file)
 	 * Get the minor device number in case you have more than
 	 * one physical device using the driver.
 	 */
-	printk("Device: %d.%d\n", inode->i_rdev>>8, inode->i_rdev & 0xff);
+	pr_info("plcm_drv: device opened\n");
 	/* we don't want to talk to two processes at the same time */
-	if(Device_Open) return -EBUSY;
-	Device_Open++;
+	if (!mutex_trylock(&plcm_lock))
+		return -EBUSY;
 	/* Make sure that the module isn't removed while the file
 	 * is open by incrementing the usage count (the number of
 	 * opened references to the module,if it's zero emmod will
@@ -453,7 +436,7 @@ static int plcm_open(struct inode * inode, struct file * file)
 static int plcm_release(struct inode * inode, struct file * file)
 {
 	/* ready for next caller */
-	Device_Open--;
+	mutex_unlock(&plcm_lock);
 	/* Decrement the usage count, otherwise once you opened the file
 	 * you'll never get rid of the module.
 	 */
@@ -468,44 +451,37 @@ static int plcm_release(struct inode * inode, struct file * file)
  * devices table, it can't be local to init_module.
  * NULL is for unimplemented functions.
  */
-#if defined(OLDKERNEL)
-static struct file_operations plcm_fops ={
-	owner:		THIS_MODULE,
-	llseek:		NULL,
-	read:		plcm_read,
-	write:		plcm_write,
-	ioctl:		plcm_ioctl,
-	open:		plcm_open,
-	release:	plcm_release,
-};
-#else
 static const struct file_operations plcm_fops = {
+	.owner		= THIS_MODULE,
 	.read		= plcm_read,
 	.write		= plcm_write,
-	.ioctl		= plcm_ioctl,
+	.unlocked_ioctl	= plcm_ioctl,
 	.open		= plcm_open,
 	.release	= plcm_release,
 };
-#endif
 
-int plcm_init(void)
+static struct miscdevice plcm_device = {
+	.minor	= MISC_DYNAMIC_MINOR,
+	.name	= "plcm_drv",
+	.fops	= &plcm_fops,
+};
+
+static int __init plcm_init(void)
 {
-	/*
-	 * Register the character device
-	 */
-	if(register_chrdev(PLCM_MAJOR, "plcm_drv", &plcm_fops))
+	int ret;
+
+	ret = LCM_Init();
+	if(ret)
+		return ret;
+
+	ret = misc_register(&plcm_device);
+	if (ret)
 	{
-		printk("plcm : unable to get major %d\n", PLCM_MAJOR);
-		return -EIO;
+		release_region(Port_Addr, PLCM_IO_EXTENT);
+		Port_Addr = 0;
+		return ret;
 	}
-	printk("Parallel LCM Driver Version %s is loaded\n", Driver_Version);
-	LCM_Init();
-	//write test
-	if(DataPort == 0)
-	{
-		printk("plcm_drv: unable to access any LPTx\n");
-		return -EIO;
-	}
+	pr_info("Parallel LCM Driver Version %s is loaded\n", Driver_Version);
 #if 0
 	kernel_thread(plcm_thread, (void *)"Parallel LCM Thread", 0);
 #endif
@@ -515,10 +491,11 @@ int plcm_init(void)
 /*
  * Cleanup - unregister the appropriate file from /proc
  */
-void plcm_exit(void)
+static void __exit plcm_exit(void)
 {
-	/* Unregister the device */
-	unregister_chrdev(PLCM_MAJOR, "plcm_drv");
+	misc_deregister(&plcm_device);
+	if (Port_Addr)
+		release_region(Port_Addr, PLCM_IO_EXTENT);
 	/* If there's an error, report it */
 	printk("Parallel LCM Driver Version %s is unloaded\n", Driver_Version);
 }

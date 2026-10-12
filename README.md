@@ -1,2 +1,64 @@
 # plcm_drv
-Lanner Parallel LCM Driver (provided with FW-8758 hardware)
+
+Lanner Parallel LCM driver for the FW-8758 and similar x86 appliances.
+
+The driver uses the legacy PC parallel-port I/O addresses directly. It is
+therefore limited to x86 targets with the LCM enabled in firmware. The module
+creates `/dev/plcm_drv` through the misc-device subsystem.
+
+## OpenWrt
+
+Create a package directory in an OpenWrt buildroot and copy the package recipe
+and module sources into it:
+
+```sh
+mkdir -p /path/to/openwrt/package/kernel/plcm-drv/{src,files}
+cp openwrt-package.mk /path/to/openwrt/package/kernel/plcm-drv/Makefile
+cp Makefile plcm_drv.c plcm_ioctl.h plcm_status.c \
+	/path/to/openwrt/package/kernel/plcm-drv/src/
+cp openwrt/files/* /path/to/openwrt/package/kernel/plcm-drv/files/
+```
+
+Enable both `Kernel modules > Other modules > kmod-plcm-drv` and
+`Utilities > plcm-status`, then build them:
+
+```sh
+cd /path/to/openwrt
+make menuconfig
+make package/kernel/plcm-drv/compile V=s
+```
+
+The resulting packages provide:
+
+- `kmod-plcm-drv`: installs `plcm_drv.ko`, loads it at boot, and creates
+	`/dev/plcm_drv`.
+- `plcm-status`: runs a small daemon under procd. The first display line shows
+	CPU utilization and RAM usage. The second alternates between IPv4 address
+	and RX/TX bandwidth.
+
+Configure the network device and refresh timing through UCI:
+
+```sh
+uci set plcm-status.main.interface='eth0'
+uci set plcm-status.main.refresh='2'
+uci set plcm-status.main.page_time='5'
+uci commit plcm-status
+/etc/init.d/plcm-status restart
+```
+
+On many current OpenWrt devices the address belongs to `br-lan`, not the
+physical `eth0`; set `interface` accordingly. Bandwidth is shown for the same
+interface. If another parallel-port driver owns addresses `0x378`, `0x278`, or
+`0x3bc`, unload or disable that driver first.
+
+## External Kbuild
+
+The root Makefile also supports a prepared kernel tree directly:
+
+```sh
+make KDIR=/path/to/linux-6.18
+```
+
+Pass the target `ARCH` and `CROSS_COMPILE` variables when cross-compiling.
+The optional user-space diagnostics and status daemon are built separately
+with `make tools`.

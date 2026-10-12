@@ -2,8 +2,11 @@
  * Lanner Paralle LCM Driver Test Program
  */
 #include <sys/file.h>
+#include <sys/io.h>
+#include <sys/ioctl.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 #include "plcm_ioctl.h"
 
 int main(int argc, char *argv[])
