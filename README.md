@@ -8,15 +8,20 @@ creates `/dev/plcm_drv` through the misc-device subsystem.
 
 ## OpenWrt
 
-Create a package directory in an OpenWrt buildroot and copy the package recipe
-and module sources into it:
+This repository is an OpenWrt package feed. Add its Git URL to `feeds.conf`:
 
 ```sh
-mkdir -p /path/to/openwrt/package/kernel/plcm-drv/{src,files}
-cp openwrt-package.mk /path/to/openwrt/package/kernel/plcm-drv/Makefile
-cp Makefile plcm_drv.c plcm_ioctl.h plcm_status.c \
-	/path/to/openwrt/package/kernel/plcm-drv/src/
-cp openwrt/files/* /path/to/openwrt/package/kernel/plcm-drv/files/
+echo 'src-git plcm_drv https://github.com/OWNER/plcm_drv.git' >> feeds.conf
+./scripts/feeds update plcm_drv
+./scripts/feeds install -a -p plcm_drv
+```
+
+For local development, link the working tree instead:
+
+```sh
+echo 'src-link plcm_drv /path/to/plcm_drv' >> feeds.conf
+./scripts/feeds update plcm_drv
+./scripts/feeds install -a -p plcm_drv
 ```
 
 Enable both `Kernel modules > Other modules > kmod-plcm-drv` and
@@ -56,9 +61,9 @@ interface. If another parallel-port driver owns addresses `0x378`, `0x278`, or
 The root Makefile also supports a prepared kernel tree directly:
 
 ```sh
-make KDIR=/path/to/linux-6.18
+make -C plcm-drv/src KDIR=/path/to/linux-6.18
 ```
 
 Pass the target `ARCH` and `CROSS_COMPILE` variables when cross-compiling.
 The optional user-space diagnostics and status daemon are built separately
-with `make tools`.
+with `make -C plcm-drv/src tools`.

@@ -1,3 +1,11 @@
 *.o
-plcm_cursor_char
-plcm_test
+*.ko
+*.mod
+*.mod.c
+*.mod.cmd
+*.o.cmd
+Module.symvers
+modules.order
+plcm-drv/src/plcm-status
+plcm-drv/src/plcm_cursor_char
+plcm-drv/src/plcm_test

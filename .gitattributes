@@ -1,2 +1,1 @@
-openwrt-package.mk text eol=lf
-openwrt/files/* text eol=lf
+* text=auto eol=lf
