@@ -51,7 +51,7 @@ static unsigned int  ControlPort = 0;
 static unsigned char Backlight = 0; // Backlight ON
 static unsigned char Cur_Line = 1; // Current Line#
 static unsigned char Cur_EntryMode = 0x04; // Current Entry Mode Set CMD
-static unsigned char Cur_Display = 0x08; // Current Display On/Off Ctrl
+static unsigned char Cur_Display = 0x0C; // Display on, cursor and blink off
 static unsigned char Cur_Shift = 0x10; // Current Cursor/Dsiplay Shift Ctrl
 
 static unsigned int row = 0; // count row
@@ -98,7 +98,7 @@ static int LCM_Init(void)
 		LCM_Command(0, 0, 0x38,  300, NULL);
 		LCM_Command(0, 0, 0x38,  300, NULL);
 		LCM_Command(0, 0, 0x38,  300, NULL);
-		LCM_Command(0, 0, 0x0E,  300, NULL); // Display On/OFF
+		LCM_Command(0, 0, Cur_Display, 300, NULL); // Display control
 		LCM_Command(0, 0, 0x01, 3000, NULL); // Display Clear
 		LCM_Command(0, 0, 0x06,  300, NULL); // Entry Mode Set
 		
@@ -314,7 +314,7 @@ static long plcm_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			LCM_Backlight();
 			break;
 		case PLCM_IOCTL_SET_LINE:
-			LCM_Command(0, 0, 0x0E,  300, NULL); // Display On/OFF
+			LCM_Command(0, 0, Cur_Display, 300, NULL);
 			if(arg == 1)
 			{
 				Cur_Line = 1;
