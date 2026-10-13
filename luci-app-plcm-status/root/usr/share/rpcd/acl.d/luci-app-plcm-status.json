@@ -1,0 +1,11 @@
+{
+	"luci-app-plcm-status": {
+		"description": "Grant access to PLCM display configuration",
+		"read": {
+			"uci": [ "plcm-status" ]
+		},
+		"write": {
+			"uci": [ "plcm-status" ]
+		}
+	}
+}

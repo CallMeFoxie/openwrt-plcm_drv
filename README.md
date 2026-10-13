@@ -24,36 +24,43 @@ echo 'src-link plcm_drv /path/to/plcm_drv' >> feeds.conf
 ./scripts/feeds install -a -p plcm_drv
 ```
 
-Enable both `Kernel modules > Other modules > kmod-plcm-drv` and
-`Utilities > plcm-status`, then build them:
+Enable `Kernel modules > Other modules > kmod-plcm-drv`,
+`Utilities > plcm-status`, and `LuCI > Applications > luci-app-plcm-status`,
+then build them:
 
 ```sh
 cd /path/to/openwrt
 make menuconfig
-make package/kernel/plcm-drv/compile V=s
+make package/feeds/plcm_drv/plcm-drv/compile V=s
+make package/feeds/plcm_drv/luci-app-plcm-status/compile V=s
 ```
 
 The resulting packages provide:
 
 - `kmod-plcm-drv`: installs `plcm_drv.ko`, loads it at boot, and creates
 	`/dev/plcm_drv`.
-- `plcm-status`: runs a small daemon under procd. The first display line shows
-	CPU utilization and RAM usage. The second alternates between IPv4 address
-	and RX/TX bandwidth.
+- `plcm-status`: renders configurable rotating pages and runs under procd.
+- `luci-app-plcm-status`: adds the page editor under **Services > PLCM Display**.
 
-Configure the network device and refresh timing through UCI:
+Pages contain left and right slots on both display lines. One configured slot
+uses all 20 characters; when both slots are configured, each receives 10.
+Pages can be reordered in LuCI. Available widgets are static text, hostname,
+clock, date, uptime, CPU, RAM, load, IPv4 address, RX rate, and TX rate.
+
+The network widgets use their argument as the Linux interface name. Static text
+uses it as the displayed value, while clock and date accept an optional
+`strftime` format. The equivalent UCI configuration is:
 
 ```sh
-uci set plcm-status.main.interface='eth0'
-uci set plcm-status.main.refresh='2'
-uci set plcm-status.main.page_time='5'
+uci set plcm-status.main.refresh='1'
+uci set plcm-status.@page[1].line1_left='ipv4'
+uci set plcm-status.@page[1].line1_left_arg='br-lan'
 uci commit plcm-status
 /etc/init.d/plcm-status restart
 ```
 
-On many current OpenWrt devices the address belongs to `br-lan`, not the
-physical `eth0`; set `interface` accordingly. Bandwidth is shown for the same
-interface. If another parallel-port driver owns addresses `0x378`, `0x278`, or
+Saving and applying the LuCI form restarts the service through its procd UCI
+trigger. If another parallel-port driver owns addresses `0x378`, `0x278`, or
 `0x3bc`, unload or disable that driver first.
 
 ## External Kbuild
